@@ -1,0 +1,341 @@
+---
+title: "GWRpol ideal Forward selection adapt kernel"
+author: "Bart Breekveldt"
+date: "11 4 2022"
+output: html_document
+---
+```{r}
+#load libraries
+
+easypackages::packages ("sf", "sp", "spdep", "spatialreg", "spgwr", "tmap", "mapview", "car", "RColorBrewer", "tidyverse", 
+                        "cowplot", "leafsync", "leaflet.extras2", "mapview")
+
+```
+
+As you can see from the local R2, there is slight variations in R2 for each neighborhood. Same is true for coefficients. As we can also map each coefficients using the following codes.
+
+5.2 Adaptive Kernel GWR: Selecting bandwidth, fitting GWR
+
+Adaptive kernel do not depend on fixed distance as bandwidth. In this approch the kernel adapt in size to variations in the density of the spatial data so that the kernels have larger bandwidths where the data are sparse and have smaller bandwidths where the data are plentiful. Here, the bandwidth is not distance but numbers of nearest neighbors best fitted based on the data density. Here the k-nearest neighbors expressed as the proportion of observations (in this case the proportion of neighborhoods within at the neighborhoods in the data set). We can use the following code to find the optimal proportion as bandwidth.
+
+```{r}
+rm(list=ls())
+data0 <- st_read("C:/Users/bartb/Downloads/Utrecht_drop_na_for_real_sleepytime/output-dropna.shp")
+
+data <- data0 %>%
+  select(G_GAS_WON,G_ELEK_WON,P_NL_ACHTG, STED,INW_2544  , WOZWONING   , OAD, P_HINK_HH, pm10_mean,pm25_mean,nox_mean,no2_mean)
+
+data_sp <- as_Spatial(data)
+
+# from forward fixed kernel analysis
+pm25_eq <- pm25_mean ~  OAD + INW_2544
+pm10_eq <- pm10_mean ~ INW_2544 + OAD + STED
+no2_eq <- no2_mean ~ STED + OAD + P_HINK_HH + G_GAS_WON + INW_2544
+nox_eq <- nox_mean ~ STED + OAD + P_HINK_HH + G_GAS_WON + INW_2544
+
+```
+
+```{r}
+#Let us explore the data a bit
+
+pm10plot <- ggplot(data = data) +
+geom_density(alpha=0.8, colour="black", fill="lightblue", aes(x = pm10_mean)) +
+   theme_classic()
+
+pm25plot <- ggplot(data = data) +
+geom_density(alpha=0.8, colour="black", fill="green3", aes(x =  pm25_mean)) +
+   theme_classic()
+ 
+no2plot <- ggplot(data = data) +
+geom_density(alpha=0.8, colour="black", fill="green3", aes(x =  no2_mean)) +
+   theme_classic()
+ 
+noxplot <- ggplot(data = data) +
+geom_density(alpha=0.8, colour="black", fill="green3", aes(x =  nox_mean)) +
+   theme_classic()
+
+densityplot <- ggplot(data = data) +
+geom_density(alpha=0.8, colour="black", fill="green3", aes(x =  OAD)) +
+   theme_classic()
+
+electricityplot <- ggplot(data = data) +
+geom_density(alpha=0.8, colour="black", fill="green3", aes(x =  G_ELEK_WON)) +
+   theme_classic()
+
+gasplot <- ggplot(data = data) +
+geom_density(alpha=0.8, colour="black", fill="green3", aes(x =  G_GAS_WON)) +
+   theme_classic()
+
+WOZnplot <- ggplot(data = data) +
+geom_density(alpha=0.8, colour="black", fill="green3", aes(x =  WOZWONING)) +
+   theme_classic()
+
+dutchplot <- ggplot(data = data) +
+geom_density(alpha=0.8, colour="black", fill="green3", aes(x =  P_NL_ACHTG)) +
+   theme_classic()
+
+urbanityplot <- ggplot(data = data) +
+geom_density(alpha=0.8, colour="black", fill="green3", aes(x =  STED)) +
+   theme_classic()
+
+populationplot <- ggplot(data = data) +
+geom_density(alpha=0.8, colour="black", fill="green3", aes(x =  INW_2544)) +
+   theme_classic()
+
+hincomeplot <- ggplot(data = data) +
+geom_density(alpha=0.8, colour="black", fill="green3", aes(x =  P_HINK_HH)) +
+   theme_classic()
+
+plot_grid(pm10plot, pm25plot, no2plot, noxplot, densityplot,gasplot,electricityplot, WOZnplot,dutchplot,urbanityplot,populationplot, hincomeplot, labels = "AUTO")
+```
+
+```{r}
+#run the model
+linearMod25 <- lm (pm25_eq, data = data) 
+linearMod10 <- lm (pm10_eq, data = data) 
+linearModno2 <- lm (no2_eq, data = data) 
+linearModnox <- lm (nox_eq, data = data) 
+
+#get summary
+summary(linearMod25)
+summary(linearMod10)
+summary(linearModno2)
+summary(linearModnox)
+
+#HOMOSCEIDACITY
+vif(linearMod25) # above 5
+vif(linearMod10) # above 5
+vif(linearModno2)# under 5
+vif(linearModnox)#unter 5
+```
+
+```{r}
+#Usually we use the moran.test function to get the Moran’s I, but that method is sensitive to irregularly distributed polygons. So we would use Monte Carlo method to bootstrap different polygon distribution. Here moran.mc() funtion does the job
+
+# Adjacency matrix
+data_nbq <- poly2nb(data, queen=TRUE) #Queen’s Contiguity neighborhood
+data_nbq_w <- nb2listw(data_nbq, style="W",zero.policy = TRUE) #Queen’s neighborhood wights
+
+# plot adjacency
+coordsW <- data%>%
+  st_centroid()%>%
+  st_geometry()
+plot(data_nbq_w, st_geometry(coordsW), col="red")
+
+# Monte Carlo method to bootstrap different polygon distributions
+mc_global25 <- moran.mc(linearMod25$residuals, data_nbq_w, 2999,zero.policy = TRUE, alternative="greater")
+mc_global10 <- moran.mc(linearMod10$residuals, data_nbq_w, 2999,zero.policy = TRUE, alternative="greater")
+mc_globalno2 <- moran.mc(linearModno2$residuals, data_nbq_w, 2999,zero.policy = TRUE, alternative="greater")
+mc_globalnox <- moran.mc(linearModnox$residuals, data_nbq_w, 2999,zero.policy = TRUE, alternative="greater")
+
+plot(mc_global25, main = "Density plot of permutation outcomes pm25")
+plot(mc_global10, main = "Density plot of permutation outcomes pm10")
+plot(mc_globalno2, main = "Density plot of permutation outcomes no2")
+plot(mc_globalnox, main = "Density plot of permutation outcomes nox")
+
+mc_global25
+mc_global10
+mc_globalno2
+mc_globalnox
+
+#As the p value is significant we reject the null hypothesis that there is no significant autocorrelations among the variable, and accept that, the residual has spatial clustering
+
+```
+
+```{r}
+#adaptive kernel
+abw_poll_pm25 <- gwr.sel (pm25_eq, data = data_sp, adapt = TRUE, gweight = gwr.Gauss)
+abw_poll_pm10 <- gwr.sel (pm10_eq, data = data_sp, adapt = TRUE, gweight = gwr.Gauss)
+abw_poll_no2 <- gwr.sel (no2_eq, data = data_sp, adapt = TRUE, gweight = gwr.Gauss)
+abw_poll_nox <- gwr.sel (nox_eq, data = data_sp, adapt = TRUE, gweight = gwr.Gauss)
+
+y <- c('pm25','pm10','no2','nox')
+
+#see the adaptive kernel 
+print(tibble(pollutant = y, 'adaptive gwr size' = rbind(
+  abw_poll_pm25,
+  abw_poll_pm10,
+  abw_poll_no2,
+  abw_poll_nox)))
+```
+Here the optimal bandwidth is 0.0083 indicating the proportion of observations (or number of neighbors) to be included in the weighting. In our case, we have 1673 neighborhoods in our data set, here 0.0083% of this total neighborhoods is equal to (1673 * 0.0083) ~ 13.88 or 14 nearest neighbors. For each neighborhood this approximate nearest neighborhoods should be used to calibrate the relevant local regression. Compared to the fixed kernel approch this is more adaptive to reflect the local surrounding conditions. Now we can use the following code to fit the adaptive kernel GWR.
+
+```{r}
+#Fitting the adaptive Kernel GWR
+ab_gwr_pm25 <- gwr(pm25_eq, data = data_sp, longlat = TRUE, adapt = abw_poll_pm25, gweight = gwr.Gauss, hatmatrix=TRUE, se.fit=TRUE)
+ab_gwr_pm10 <- gwr(pm10_eq, data = data_sp, longlat = TRUE, adapt = abw_poll_pm10, gweight = gwr.Gauss, hatmatrix=TRUE, se.fit=TRUE)
+ab_gwr_no2 <- gwr(no2_eq, data = data_sp, longlat = TRUE, adapt = abw_poll_no2, gweight = gwr.Gauss, hatmatrix=TRUE, se.fit=TRUE)
+ab_gwr_nox <- gwr(nox_eq, data = data_sp, longlat = TRUE, adapt = abw_poll_nox, gweight = gwr.Gauss, hatmatrix=TRUE, se.fit=TRUE)
+
+#summary of the model
+print(ab_gwr_pm25)
+print(ab_gwr_pm10)
+print(ab_gwr_no2)
+print(ab_gwr_nox)
+```
+Again the interpenetration of the printed result is not that important as they are not telling the local variability explicitly> Just have look at the Quasi-global R2, it is highest among all the previous models! We will now extract the local models into a data frame and map the R2 and others. The next section of code do this works.
+
+
+```{r}
+#adaptive GWR results in data frame
+ab_gwr_poutpm25 <- as.data.frame(ab_gwr_pm25$SDF)
+ab_gwr_poutpm10 <- as.data.frame(ab_gwr_pm10$SDF)
+ab_gwr_poutno2 <- as.data.frame(ab_gwr_no2$SDF)
+ab_gwr_poutnox <- as.data.frame(ab_gwr_nox$SDF)
+
+
+#join the local R2 for each model to each neighborhood
+data$amb_localR2_pm25 <- ab_gwr_poutpm25$localR2
+data$amb_localR2_pm10 <- ab_gwr_poutpm10$localR2
+data$amb_localR2_no2 <- ab_gwr_poutno2$localR2
+data$amb_localR2_nox <- ab_gwr_poutnox$localR2
+
+
+#mapview::mapview(data, zcol = "amb_localR2", col.regions=brewer.pal(11, "RdYlGn")) 
+
+```
+Let us also check the variability of the coefficients for green space availability on premature mortality.
+
+```{r}
+
+
+#join that with our main polygon data frame (PM25)
+data$acoef_pm25_INW_2544 = ab_gwr_poutpm25$INW_2544  
+data$acoef_pm25_OAD = ab_gwr_poutpm25$OAD  
+
+#join that with our main polygon data frame (PM10)
+data$acoef_pm10_INW_2544 = ab_gwr_poutpm10$INW_2544 
+data$acoef_pm10_STED = ab_gwr_poutpm10$STED  
+data$acoef_pm10_OAD = ab_gwr_poutpm10$OAD  
+
+#join that with our main polygon data frame (NO2)
+data$acoef_no2_G_GAS_WON = ab_gwr_poutno2$G_GAS_WON
+data$acoef_no2_INW_2544 = ab_gwr_poutno2$INW_2544  
+data$acoef_no2_STED = ab_gwr_poutno2$STED  
+data$acoef_no2_OAD = ab_gwr_poutno2$OAD  
+data$acoef_no2_P_HINK_HH = ab_gwr_poutno2$P_HINK_HH 
+
+#join that with our main polygon data frame (NOX)
+data$acoef_nox_G_GAS_WON = ab_gwr_poutnox$G_GAS_WON
+data$acoef_nox_INW_2544 = ab_gwr_poutnox$INW_2544  
+data$acoef_nox_STED = ab_gwr_poutnox$STED  
+data$acoef_nox_OAD = ab_gwr_poutnox$OAD  
+data$acoef_nox_P_HINK_HH = ab_gwr_poutnox$P_HINK_HH 
+
+
+#coef_ab_gav <- mapview::mapview(data, zcol = "acoef_G_GAS_WON")
+#coef_ab_gav
+
+```
+Here the size of the coefficient is larger then fixed kernel regression. Additionally we can see where there are strong negative relationship between green space exposure and premature mortality. Compared to global model with a single coefficient value here we can explore the local variability in more detail.
+
+5.3 Compare the spatial variability of significance of relationships While we can explore the spatial variability of coefficients, but that does not tell us if the local relationships is statistically significant or not? Also what does it means in terms of interpretation? Some local relations maybe significant and some may be not, we can determine these by evaluating the t-statics for each indicator for each neighborhood. Here we can use the coefficient and standard error of the coefficient to estimate the absolute t value, and at a 0.05 significance lave t-values above 1.96 would indicate significant relationship between the dependent and independent variable. To note, there is another GWR package available that can also compute the p-value directly. The details of the package can be found here: Lu, B., Harris, P., Charlton, M. and Brunsdon, C., 2014. The GWmodel R package: further topics for exploring spatial heterogeneity using geographically weighted models. Geo-spatial Information Science, 17(2), pp.85-101. DOI: https://doi.org/10.1080/10095020.2014.917453
+
+The following code can compute and map the statistical significance for both fixed and adaptive kernel models.
+
+
+```{r}
+
+#For Adaptive model
+#estimate the t-value for variable for adaptive kernel model (PM25)
+data$pm25_at_INW_2544 = ab_gwr_poutpm25$INW_2544 / ab_gwr_poutpm25$INW_2544_se
+data$pm25_at_OAD = ab_gwr_poutpm25$OAD / ab_gwr_poutpm25$OAD_se
+
+#estimate the t-value for variable for adaptive kernel model (PM10)
+data$pm10_at_INW_2544 = ab_gwr_poutpm10$INW_2544 / ab_gwr_poutpm10$INW_2544_se
+data$pm10_at_STED = ab_gwr_poutpm10$STED / ab_gwr_poutpm10$STED_se
+data$pm10_at_OAD = ab_gwr_poutpm10$OAD / ab_gwr_poutpm10$OAD_se
+
+#estimate the t-value for variable for adaptive kernel model (NO2)
+data$no2_at_G_GAS_WON = ab_gwr_poutno2$G_GAS_WON / ab_gwr_poutno2$G_GAS_WON_se
+data$no2_at_INW_2544 = ab_gwr_poutno2$INW_2544 / ab_gwr_poutno2$INW_2544_se
+data$no2_at_STED = ab_gwr_poutno2$STED / ab_gwr_poutno2$STED_se
+data$no2_at_OAD = ab_gwr_poutno2$OAD / ab_gwr_poutno2$OAD_se
+data$no2_at_P_HINK_HH = ab_gwr_poutno2$P_HINK_HH / ab_gwr_poutno2$P_HINK_HH_se
+
+#estimate the t-value for variable for adaptive kernel model (NOX)
+data$nox_at_G_GAS_WON = ab_gwr_poutnox$G_GAS_WON / ab_gwr_poutnox$G_GAS_WON_se
+data$nox_at_INW_2544 = ab_gwr_poutnox$INW_2544 / ab_gwr_poutnox$INW_2544_se
+data$nox_at_STED = ab_gwr_poutnox$STED / ab_gwr_poutnox$STED_se
+data$nox_at_OAD = ab_gwr_poutnox$OAD / ab_gwr_poutnox$OAD_se
+data$nox_at_P_HINK_HH = ab_gwr_poutnox$P_HINK_HH / ab_gwr_poutnox$P_HINK_HH_se
+```
+
+
+``` {r}
+
+#pm25_eq <- pm25_mean ~  OAD + INW_2544
+#pm10_eq <- pm10_mean ~ INW_2544 + OAD + STED
+#no2_eq <- no2_mean ~ STED + OAD + P_HINK_HH + G_GAS_WON + INW_2544
+#nox_eq <- nox_mean ~ STED + OAD + P_HINK_HH + G_GAS_WON + INW_2544
+
+#categorize the t-value to statistical significance (PM25)
+data$at_INW_2544_cat25 <- cut(data$pm25_at_INW_2544, 
+                               breaks=c(min(data$pm25_at_INW_2544), -1.96, 1.96, max(data$pm25_at_INW_2544)),
+                               labels=c("sig","nonsig", "sig"))
+data$at_OAD_cat25       <- cut(data$pm25_at_OAD, 
+                               breaks=c(min(data$pm25_at_OAD), -1.96, 1.96, max(data$pm25_at_OAD)),
+                               labels=c("sig","nonsig", "sig"))
+
+#categorize the t-value to statistical significance (PM10)
+data$at_INW_2544_cat10  <- cut(data$pm10_at_INW_2544, 
+                                 breaks=c(min(data$pm10_at_INW_2544), -1.96, 1.96, max(data$pm10_at_INW_2544)),
+                                 labels=c("sig","nonsig", "sig"))
+data$at_STED_cat10        <- cut(data$pm10_at_STED, 
+                                 breaks=c(min(data$pm10_at_STED), -1.96, 1.96, max(data$pm10_at_STED)), 
+                                 labels=c("sig","nonsig", "sig"))
+data$at_OAD_cat10         <- cut(data$pm10_at_OAD, 
+                                 breaks=c(min(data$pm10_at_OAD), -1.96, 1.96, max(data$pm10_at_OAD)), 
+                                 labels=c("sig","nonsig", "sig"))
+
+#categorize the t-value to statistical significance (NO2)
+data$at_G_GAS_WON_catno2  <- cut(data$no2_at_G_GAS_WON, 
+                                 breaks=c(min(data$no2_at_G_GAS_WON), -1.96, 1.96, max(data$no2_at_G_GAS_WON)),
+                                 labels=c("sig","nonsig", "sig"))
+data$at_INW_2544_catno2   <- cut(data$no2_at_INW_2544, 
+                                 breaks=c(min(data$no2_at_INW_2544), -1.96, 1.96, max(data$no2_at_INW_2544)),
+                                 labels=c("sig","nonsig", "sig"))
+data$at_STED_catno2       <- cut(data$no2_at_STED, 
+                                 breaks=c(min(data$no2_at_STED), -1.96, 1.96, max(data$no2_at_STED)), 
+                                 labels=c("sig","nonsig", "sig"))
+data$at_OAD_catno2        <- cut(data$no2_at_OAD, 
+                                 breaks=c(min(data$no2_at_OAD), -1.96, 1.96, max(data$no2_at_OAD)), 
+                                 labels=c("sig","nonsig", "sig"))
+data$at_P_HINK_HH_catno2  <- cut(data$no2_at_P_HINK_HH, 
+                                 breaks=c(min(data$no2_at_P_HINK_HH), -1.96, 1.96, max(data$no2_at_P_HINK_HH)),
+                                 labels=c("sig","nonsig", "sig"))
+
+#categorize the t-value to statistical significance (NOX)
+data$at_G_GAS_WON_catnox  <- cut(data$nox_at_G_GAS_WON, 
+                                 breaks=c(min(data$nox_at_G_GAS_WON), -1.96, 1.96, max(data$nox_at_G_GAS_WON)),
+                                 labels=c("sig","nonsig", "sig"))
+data$at_INW_2544_catnox   <- cut(data$nox_at_INW_2544, 
+                                 breaks=c(min(data$nox_at_INW_2544), -1.96, 1.96, max(data$nox_at_INW_2544)),
+                                 labels=c("sig","nonsig", "sig"))
+data$at_STED_catnox       <- cut(data$nox_at_STED, 
+                                 breaks=c(min(data$nox_at_STED), -1.96, 1.96, max(data$nox_at_STED)),
+                                 labels=c("sig","nonsig", "sig"))
+data$at_OAD_catnox        <- cut(data$nox_at_OAD, 
+                                 breaks=c(min(data$nox_at_OAD), -1.96, 1.96, max(data$nox_at_OAD)),
+                                 labels=c("sig","nonsig", "sig"))
+data$at_P_HINK_HH_catnox  <- cut(data$nox_at_P_HINK_HH, 
+                                 breaks=c(min(data$nox_at_P_HINK_HH), -1.96, 1.96, max(data$nox_at_P_HINK_HH)),
+                                 labels=c("sig","nonsig", "sig"))
+
+
+data_df <- data.frame(data)
+#st_write(data, "C:/Users/bartb/Downloads/gwr_data_ideal_shape.shp")
+write.csv(data_df[,c(1:12,14:length(names(data_df)))], "C:/Users/bartb/Downloads/gwr_fwd_data_ideal.csv")
+write.csv(ab_gwr_poutno2, "C:/Users/bartb/Downloads/gwr_fwd_ideal_no2.csv")
+write.csv(ab_gwr_poutnox, "C:/Users/bartb/Downloads/gwr_fwd_ideal_nox.csv")
+write.csv(ab_gwr_poutpm10, "C:/Users/bartb/Downloads/gwr_fwd_ideal_pm10.csv")
+write.csv(ab_gwr_poutpm25, "C:/Users/bartb/Downloads/gwr_fwd_ideal_pm25.csv")
+
+#plot the significance for adaptive kernel model (plot a custom variable)
+#poll_sig_ab <- mapview::mapview(data, zcol = "at_G_GAS_WON_cat25")
+#poll_sig_ab
+#poll_sig_fb
+#compare the maps
+#poll_sig_ab | poll_sig_fb
+```
+

@@ -1,0 +1,169 @@
+---
+title: "RF_merijn"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+https://www.tidymodels.org/start/case-study/
+
+```{r}
+library(foreign)
+library(tidyverse)
+library(tidymodels)
+library(vip)
+library(ranger)
+```
+
+```{r}
+dbf <- read.dbf("C:\\Users\\bartb\\Downloads\\Archive(3)\\output.dbf")
+df <- tibble(dbf)
+#%>% 
+#      mutate_if(is.character, as.factor) 
+
+df[df==-99997] <- NA
+
+df <- df %>% drop_na()
+set.seed(06042022)
+
+# drop distances
+df <- df[!(substring(names(df),1,2) == "AV")]
+df <- df[!(substring(names(df),1,2) == "AF")]
+# drop pc4
+df <- select(df, -PC4)
+data_split <- initial_split(df, prop=3/4)
+train_data <- training(data_split)
+test_data_very_secret <- testing(data_split)
+#glimpse(train_data)
+
+cores <- parallel::detectCores()
+cores
+```
+
+```{r}
+# Random forests
+rf_mod <- 
+  rand_forest() %>% 
+  set_engine("ranger", num.threads=4, importance = "impurity") %>% 
+  set_mode("regression")
+
+# K-Fold cross validation
+folds <- vfold_cv(train_data, v = 10)
+
+random_trees_wf <- 
+  workflow() %>%
+  add_model(rf_mod) %>%
+  add_formula(nox_mean ~ . - no2_mean - pm10_mean - pm25_mean) # yolo
+collect_notes(fit_rs)[1,]$note
+#no2_mean+ nox_mean + pm10_mean + pm25_mean
+# 6.42 is the base rate, pm10_mean = 6.10
+fit_rs <- 
+   random_trees_wf %>%  
+   fit_resamples(folds)
+
+collect_metrics(fit_rs)
+last_rf_fit <- 
+  random_trees_wf %>% 
+  last_fit(data_split)
+
+last_rf_fit %>% 
+  pluck(".workflow", 1) %>%   
+  extract_fit_parsnip() %>% 
+  vip(num_features = 20) + ggtitle("NOX")
+```
+
+```{r}
+# Random forests
+rf_mod <- 
+  rand_forest() %>% 
+  set_engine("ranger", num.threads=4, importance = "impurity") %>% 
+  set_mode("regression")
+
+# K-Fold cross validation
+folds <- vfold_cv(train_data, v = 10)
+
+random_trees_wf <- 
+  workflow() %>%
+  add_model(rf_mod) %>%
+  add_formula(no2_mean ~ . - nox_mean - pm10_mean - pm25_mean) # yolo
+collect_notes(fit_rs)[1,]$note
+#no2_mean+ nox_mean + pm10_mean + pm25_mean
+# 6.42 is the base rate, pm10_mean = 6.10
+fit_rs <- 
+   random_trees_wf %>%  
+   fit_resamples(folds)
+
+collect_metrics(fit_rs)
+last_rf_fit <- 
+  random_trees_wf %>% 
+  last_fit(data_split)
+
+last_rf_fit %>% 
+  pluck(".workflow", 1) %>%   
+  extract_fit_parsnip() %>% 
+  vip(num_features = 20) + ggtitle("NO2")
+```
+
+
+```{r}
+# Random forests
+rf_mod <- 
+  rand_forest() %>% 
+  set_engine("ranger", num.threads=4, importance = "impurity") %>% 
+  set_mode("regression")
+
+# K-Fold cross validation
+folds <- vfold_cv(train_data, v = 10)
+
+random_trees_wf <- 
+  workflow() %>%
+  add_model(rf_mod) %>%
+  add_formula(pm10_mean ~ . - nox_mean - no2_mean - pm25_mean) # yolo
+collect_notes(fit_rs)[1,]$note
+#no2_mean+ nox_mean + pm10_mean + pm25_mean
+# 6.42 is the base rate, pm10_mean = 6.10
+fit_rs <- 
+   random_trees_wf %>%  
+   fit_resamples(folds)
+
+collect_metrics(fit_rs)
+last_rf_fit <- 
+  random_trees_wf %>% 
+  last_fit(data_split)
+
+last_rf_fit %>% 
+  pluck(".workflow", 1) %>%   
+  extract_fit_parsnip() %>% 
+  vip(num_features = 20) + ggtitle("PM 10")
+```
+
+```{r}
+# Random forests
+rf_mod <- 
+  rand_forest() %>% 
+  set_engine("ranger", num.threads=4, importance = "impurity") %>% 
+  set_mode("regression")
+
+# K-Fold cross validation
+folds <- vfold_cv(train_data, v = 10)
+
+random_trees_wf <- 
+  workflow() %>%
+  add_model(rf_mod) %>%
+  add_formula(pm25_mean ~ . - nox_mean - no2_mean - pm10_mean) # yolo
+collect_notes(fit_rs)[1,]$note
+#no2_mean+ nox_mean + pm10_mean + pm25_mean
+# 6.42 is the base rate, pm10_mean = 6.10
+fit_rs <- 
+   random_trees_wf %>%  
+   fit_resamples(folds)
+
+collect_metrics(fit_rs)
+last_rf_fit <- 
+  random_trees_wf %>% 
+  last_fit(data_split)
+
+last_rf_fit %>% 
+  pluck(".workflow", 1) %>%   
+  extract_fit_parsnip() %>% 
+  vip(num_features = 20) + ggtitle("PM 25")
+```

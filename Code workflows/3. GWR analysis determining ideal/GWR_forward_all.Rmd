@@ -1,0 +1,246 @@
+---
+title: "Forward selection gwr / all selection gwr"
+author: "Bart Breekveldt"
+date: "10/04/2022"
+output: html_document
+---
+
+```{r}
+# Load the required packages
+easypackages::packages ("sf", "sp", "spdep", "spatialreg", "spgwr", "tmap", "mapview", "car", "RColorBrewer",
+                        "tidyverse", "cowplot", "leafsync", "leaflet.extras2", "mapview", "rgdal")
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r}
+# Little data preparation
+rm(list=ls())
+data0 <- st_read("C:/Users/bartb/Downloads/Utrecht_drop_na_for_real_sleepytime/output-dropna.shp")
+
+data <- data0 %>%
+  select(G_GAS_WON,G_ELEK_WON,P_NL_ACHTG,STED,INW_2544,WOZWONING,OAD,P_HINK_HH,
+         pm10_mean,pm25_mean,nox_mean,no2_mean)
+
+# drop distances
+data1 <- data0 <- data[!(substring(names(data),1,2) == "AV")]
+data1 <- data1[!(substring(names(data1),1,2) == "AF")]
+
+# Make data spatial
+data_sp <- as_Spatial(data)
+pred_var <- length(data)-5
+names2 <- names(data)[1:pred_var]
+
+cores <- parallel::detectCores()
+print(cores)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r}
+# Forward selection algorithm for fixed kernel gwr
+
+y <- c('pm25_mean','pm10_mean','no2_mean','nox_mean')
+
+forw_kernel_all <- data.frame()
+best <- data.frame()
+for (l in 1:4) {
+  forw_kernel <- tibble(matrix(,pred_var,pred_var*2+1))
+  forw_kernel[,1] <- names2
+  covered <- c()
+  for (j in 1:pred_var) {
+    forw_kernel_j = c()
+    for (i in 1:length(names2)) {
+      fbw_poll <- gwr.sel(as.formula(paste0(y[l]," ~ ",forw_kernel[i,j*2-1])), 
+                         data = data_sp,
+                         longlat = TRUE,
+                         adapt=FALSE, 
+                         gweight = gwr.Gauss, 
+                         verbose = T)
+      fb_gwr_poll <- gwr(as.formula(paste0(y[l]," ~ ",forw_kernel[i,j*2-1])), 
+                         data = data_sp,
+                         longlat = TRUE,
+                         bandwidth = fbw_poll, 
+                         gweight = gwr.Gauss,
+                         hatmatrix=TRUE, 
+                         se.fit=TRUE)
+      forw_kernel_j <-   rbind(forw_kernel_j, fb_gwr_poll$results$rss)
+      print(paste("polluter",l,"stage",j,"predictor",i))
+    }
+    forw_kernel[,j*2] <- forw_kernel_j
+    covered <- rbind(covered, as.list(forw_kernel[which.min(unlist(forw_kernel[,j*2])),1]))
+    for (k in 1:length(names2)) {
+      forw_kernel[k,(j*2+1)] <- paste(forw_kernel[which.min(unlist(forw_kernel[,j*2])),j*2-1],
+                                      ifelse(max(covered %in% forw_kernel[k,1]),"",paste(" + ",forw_kernel[k,1])))
+    }
+  }
+  best <- rbind(best, print(paste('best predictors (forward selection gwr fixed kernel): ',y[l]," ~ ",
+  forw_kernel[which.min(unlist(forw_kernel[,pred_var*2])),pred_var*2+1])))
+  forw_kernel_all <- rbind(forw_kernel_all, forw_kernel)
+}
+print(best)
+forw_kernel_all[,length(forw_kernel_all)+1] <- c(rep(y[1],8),rep(y[2],8),rep(y[3],8),rep(y[4],8))
+
+write.csv(forw_kernel_all,"C:/Users/bartb/Downloads/ideal_fwd_gwr.csv")
+
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+```{r, message = FALSE}
+y <- c('pm25_mean','pm10_mean','no2_mean','nox_mean')
+
+forwad_kernel_all <- data.frame()
+best_ad <- data.frame()
+for (l in 1:4) {
+  forwad_kernel <- tibble(matrix(,pred_var,pred_var*2+1))
+  forwad_kernel[,1] <- names2
+  covered_ad <- c()
+  for (j in 1:pred_var) {
+    forwad_kernel_j = c()
+    for (i in 1:length(names2)) {
+      abw_poll <- gwr.sel (as.formula(paste0(y[l]," ~ ",forwad_kernel[i,j*2-1])), 
+                           data = data_sp,
+                           adapt = TRUE, 
+                           gweight = gwr.Gauss)
+      ab_gwr_poll <- gwr(as.formula(paste0(y[l]," ~ ",forwad_kernel[i,j*2-1])), 
+                         data = data_sp,
+                         longlat = TRUE,
+                         adapt = abw_poll, 
+                         gweight = gwr.Gauss,
+                         hatmatrix=TRUE, 
+                         se.fit=TRUE)
+      
+      forwad_kernel_j <-   rbind(forwad_kernel_j, ab_gwr_poll$results$rss)
+      print(paste("polluter",l,"stage",j,"predictor",i))
+    }
+    forwad_kernel[,j*2] <- forwad_kernel_j
+    covered_ad <- rbind(covered_ad, as.list(forwad_kernel[which.min(unlist(forwad_kernel[,j*2])),1]))
+    for (k in 1:length(names2)) {
+      forwad_kernel[k,(j*2+1)] <- paste(forwad_kernel[which.min(unlist(forwad_kernel[,j*2])),j*2-1],
+                                      ifelse(max(covered_ad %in% forwad_kernel[k,1]),"",paste(" + ",forwad_kernel[k,1])))
+    }
+  }
+  best_ad <- rbind(best_ad, print(paste('best predictors (forward selection gwr adaptive kernel): ',y[l]," ~ ",
+  forwad_kernel[which.min(unlist(forwad_kernel[,pred_var*2])),pred_var*2+1])))
+  forwad_kernel_all <- rbind(forwad_kernel_all, forwad_kernel)
+}
+print(best_ad)
+forwad_kernel_all[,length(forwad_kernel_all)+1] <- c(rep(y[1],8),rep(y[2],8),rep(y[3],8),rep(y[4],8))
+
+
+write.csv(forwad_kernel_all,"C:/Users/bartb/Downloads/ideal_fwd_gwr_adapt.csv")
+```
+
+## preparation for tryout of all variable combinations. Don't use more than 8 predictor variables. Then the whole process will take ~ 29m at 1.2 GB used RAM for the adaptive gwr kernel and ~ 55m at 1.2 GB used RAM.
+
+```{r}
+# Get all combinations of the 8 variables
+names <- unlist(names(data[,1:8]))
+comb <- matrix(,0,8)
+for (i in 1:8) {
+  comb <- merge(comb,t(combn(names[1:8],i)), all = TRUE)
+}
+
+# Variables to be predicted
+y <- c('nox_mean','no2_mean','pm10_mean','pm25_mean')
+
+# Get all formulas
+c_form <- c()
+for (k in 1:length(y)) {
+  for (i in 1:nrow(comb)) {
+    c <- comb[i,][!is.na(comb[i,])]
+    c2 <- c()
+    for (j in 1:(length(c)-1)) {
+      c2 <- paste(c2, paste(c[j],'+'))
+    }
+    c2 <- paste(c2,c[length(c)])
+    c_form <- rbind(c_form, c2)
+    c_form[i+nrow(comb)*(k-1)] <- paste0(y[k]," ~ ",c_form[i+nrow(comb)*(k-1)])
+    #print(as.formula(paste0(y[k]," ~ ", c2)))
+  }
+}
+head(c_form)
+```
+
+```{r}
+# All gwr from the pre-selected 8 variables: fixed kernel ~ 55m at 1.2 GB used RAM
+c_kernel <- c()
+start_time = Sys.time()
+for (i in 1:length(c_form)) {
+  print(paste('fixed',i))
+  fbw_poll <- invisible(gwr.sel(c_form[i], 
+                      data = data_sp,
+                      longlat = TRUE,
+                      adapt=FALSE, 
+                      gweight = gwr.Gauss, 
+                      verbose = T))
+  fb_gwr_poll <- gwr(c_form[i], 
+                     data = data_sp,
+                     longlat = TRUE,
+                     bandwidth = fbw_poll, 
+                     gweight = gwr.Gauss,
+                     hatmatrix=TRUE, 
+                     se.fit=TRUE)
+  c_kernel <- rbind(c_kernel, fb_gwr_poll$results$rss)
+}
+end_time = Sys.time()
+print(end_time - start_time)
+
+```
+
+```{r}
+# All gwr from the pre-selected 8 variables: adaptive kernel ~ 29m at 1.2 GB used RAM
+c_adaptive_kernel <- c()
+start_time = Sys.time()
+for (i in 1:length(c_form)) {
+  print(i)
+  abw_poll <- gwr.sel (c_form[i], 
+                       data = data_sp,
+                       adapt = TRUE, 
+                       gweight = gwr.Gauss)
+  ab_gwr_poll <- gwr(c_form[i], 
+                     data = data_sp,
+                     longlat = TRUE,
+                     adapt = abw_poll, 
+                     gweight = gwr.Gauss,
+                     hatmatrix=TRUE, 
+                     se.fit=TRUE)
+  c_adaptive_kernel <- rbind(c_adaptive_kernel, ab_gwr_poll$results$rss)
+}
+end_time = Sys.time()
+print(end_time - start_time)
+
+```
+
+```{r}
+# summarise the RSS scores and take the top10 for each.
+gwr_scores <- data.frame(c_form)
+names(gwr_scores) <- c('formula')
+gwr_scores['polluter'] <- c(rep('nox_mean',255),rep('no2_mean',255),rep('pm10_mean',255),rep('pm25_mean',255))
+gwr_scores['fixed'] <- c_kernel
+gwr_scores['adaptive'] <- c_adaptive_kernel
+
+adapt_10_gwr_pm25 <- gwr_scores[gwr_scores['polluter'] == 'pm25_mean',][order(
+  gwr_scores[gwr_scores['polluter'] == 'pm25_mean',]$adaptive),c('formula','adaptive')][1:10,]
+
+adapt_10_gwr_pm10 <- gwr_scores[gwr_scores['polluter'] == 'pm10_mean',][order(
+  gwr_scores[gwr_scores['polluter'] == 'pm10_mean',]$adaptive),c('formula','adaptive')][1:10,]
+
+adapt_10_gwr_no2 <- gwr_scores[gwr_scores['polluter'] == 'no2_mean',][order(
+  gwr_scores[gwr_scores['polluter'] == 'no2_mean',]$adaptive),c('formula','adaptive')][1:10,]
+
+adapt_10_gwr_nox <- gwr_scores[gwr_scores['polluter'] == 'nox_mean',][order(
+  gwr_scores[gwr_scores['polluter'] == 'nox_mean',]$adaptive),c('formula','adaptive')][1:10,]
+
+print(rbind(adapt_10_gwr_pm25[1,],adapt_10_gwr_pm10[1,],adapt_10_gwr_no2[1,],adapt_10_gwr_nox[1,]))
+
+# You can export this file to csv.
+write.csv(gwr_scores, "C:/Users/bartb/Downloads/gwr_scores2.csv")
+```
+

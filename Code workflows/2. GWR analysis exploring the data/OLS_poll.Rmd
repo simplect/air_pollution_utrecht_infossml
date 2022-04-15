@@ -1,0 +1,219 @@
+---
+title: "OLS_poll"
+author: "Linda Ilic"
+date: "6 4 2022"
+output: html_document
+---
+```{r}
+#load libraries
+
+#install.packages('rgdal')
+
+easypackages::packages ("sf", "sp", "spdep", "spatialreg", "spgwr", "tmap", "mapview", "car", "RColorBrewer", "tidyverse", 
+                        "cowplot", "leafsync", "leaflet.extras2", "mapview", "rgdal")
+## All packages loaded successfully
+
+library(rgdal)
+
+```
+
+4.2 Data: Now let us load the Green space and mortality data from the local folder. Keep in mind you have to get the Geopackage file from your Teams folder for INFOMSSML.
+This data is part of this paper: Labib, S.M., Lindley, S. and Huck, J.J., 2021. Estimating multiple greenspace exposure types and their associations with neighbourhood premature mortality: A socioecological study. Science of The Total Environment, 789, p.147919. DOI: https://doi.org/10.1016/j.scitotenv.2021.147919
+Check the details of this paper for each variable. But keep in mind we are not using all the variables noted in the paper. It is a data of 1673 neighborhood in Greater Manchester
+
+```{r}
+#clean your environment
+rm(list=ls())
+
+#Loading the spatial data. This s GEOPACKAGE format data which is a really efficient GIS data format, compared to shape files
+#use the SF package to bring the data
+data0 <- st_read("C:/Users/bartb/Downloads/Utrecht_drop_na_for_real_sleepytime/output-dropna.shp")
+
+names (data)
+
+sum(is.na(data))
+
+data <- data0 %>%
+  select(G_GAS_WON,G_ELEK_WON,P_NL_ACHTG, STED,INW_2544  , WOZWONING   , OAD, P_HINK_HH, pm10_mean,pm25_mean,nox_mean,no2_mean)
+
+#data <- st_read("data/Utrecht_2/output.shp")
+
+sum(is.na(data))
+
+```
+
+``` {r}
+#Let us explore the data a bit
+
+pm10plot <- ggplot(data = data) +
+geom_density(alpha=0.8, colour="black", fill="lightblue", aes(x = pm10_mean)) +
+   theme_classic()
+
+pm25plot <- ggplot(data = data) +
+geom_density(alpha=0.8, colour="black", fill="green3", aes(x =  pm25_mean)) +
+   theme_classic()
+ 
+no2plot <- ggplot(data = data) +
+geom_density(alpha=0.8, colour="black", fill="green3", aes(x =  no2_mean)) +
+   theme_classic()
+ 
+noxplot <- ggplot(data = data) +
+geom_density(alpha=0.8, colour="black", fill="green3", aes(x =  nox_mean)) +
+   theme_classic()
+
+densityplot <- ggplot(data = data) +
+geom_density(alpha=0.8, colour="black", fill="green3", aes(x =  OAD)) +
+   theme_classic()
+
+electricityplot <- ggplot(data = data) +
+geom_density(alpha=0.8, colour="black", fill="green3", aes(x =  G_ELEK_WON)) +
+   theme_classic()
+
+gasplot <- ggplot(data = data) +
+geom_density(alpha=0.8, colour="black", fill="green3", aes(x =  G_GAS_WON)) +
+   theme_classic()
+
+WOZnplot <- ggplot(data = data) +
+geom_density(alpha=0.8, colour="black", fill="green3", aes(x =  WOZWONING)) +
+   theme_classic()
+
+dutchplot <- ggplot(data = data) +
+geom_density(alpha=0.8, colour="black", fill="green3", aes(x =  P_NL_ACHTG)) +
+   theme_classic()
+
+urbanityplot <- ggplot(data = data) +
+geom_density(alpha=0.8, colour="black", fill="green3", aes(x =  STED)) +
+   theme_classic()
+
+
+populationplot <- ggplot(data = data) +
+geom_density(alpha=0.8, colour="black", fill="green3", aes(x =  INW_2544)) +
+   theme_classic()
+
+
+hincomeplot <- ggplot(data = data) +
+geom_density(alpha=0.8, colour="black", fill="green3", aes(x =  P_HINK_HH)) +
+   theme_classic()
+
+plot_grid(pm10plot, pm25plot, no2plot, noxplot, densityplot,gasplot,electricityplot, WOZnplot,dutchplot,urbanityplot,populationplot, hincomeplot, labels = "AUTO")
+#Now let us map and see these variables interactively
+YPLLmap <- mapview::mapview(data, zcol = "no2_mean", col.regions=brewer.pal(11, "YlOrRd"))
+
+GreenAvilmap <- mapview::mapview(data, zcol = "WOZWONING", col.regions=brewer.pal(11, "Greens"))
+
+#YPLLmap | GreenAvilmap 
+
+
+
+
+```
+
+Now carefully evaluate how two different types of data exploration give info about the possible correlations between these variables. The density plots do not give much information about possible spatial patterns, when the maps clearly show some spatial patterns.
+Which type of model you want to consider: nonspatial vs spatial, global vs local?
+
+4.3 OLS modelling: Let us try testing a OLS model and see if it is fine or not
+
+```{r}
+#set the question
+eq_no2 <- no2_mean  ~ G_GAS_WON + G_ELEK_WON + P_NL_ACHTG + WOZWONING  + OAD + P_HINK_HH
+
+eq_pm10 <-  pm10_mean  ~ G_GAS_WON + G_ELEK_WON + STED + WOZWONING  + OAD + INW_2544
+
+eq_pm25 <-  pm25_mean  ~ G_GAS_WON + G_ELEK_WON + P_NL_ACHTG + WOZWONING  + OAD + STED
+
+eq_nox <-  nox_mean  ~ G_GAS_WON + G_ELEK_WON + P_NL_ACHTG + WOZWONING  + OAD + P_HINK_HH
+
+#run the model
+linearMod25 <- lm (eq_pm25, data = data) 
+linearMod10 <- lm (eq_pm10, data = data) 
+linearModno <- lm (eq_no2, data = data) 
+linearModnx <- lm (eq_nox, data = data) 
+
+#get summary
+summary(linearMod25)
+summary(linearMod10)
+summary(linearModno)
+summary(linearModnx)
+
+#HOMOSCEIDACITY
+vif(linearMod25) # above 5
+vif(linearMod10) # above 5
+vif(linearModno)# under 5
+vif(linearModnx)#unter 5
+
+```
+
+
+But what about spatial autocorrelation. Let us check Spatial autocorrelation in the regression residual. For that we would need the spatial weight matrix. [From Lecture 5]
+
+```{r}
+#creating adjacency matrix
+data_nbq <- poly2nb(data, queen=TRUE) #Queen’s Contiguity neighborhood
+summary(data_nbq)
+
+data_nbq_w <- nb2listw(data_nbq, style="W",zero.policy = TRUE) #Queen’s neighborhood wights
+summary(data_nbq_w,zero.policy = TRUE)
+
+#for plotting
+coordsW <- data%>%
+  st_centroid()%>%
+  st_geometry()
+
+## Warning in st_centroid.sf(.): st_centroid assumes attributes are constant over
+## geometries of x
+plot(data_nbq_w, st_geometry(coordsW), col="red")
+
+```
+
+
+Now let us check the residual autocorrelation using Moran’s I using Monte Carlo method
+
+
+```{r}
+#Usually we use the moran.test function to get the Moran’s I, but that method is sensitive to irregularly distributed polygons. So we would use Monte Carlo method to bootstrap different polygon distribution. Here moran.mc() funtion does the job
+
+mc_global <- moran.mc(linearMod25$residuals, data_nbq_w, 2999,zero.policy = TRUE, alternative="greater")
+plot(mc_global)
+mc_global
+
+#As the p value is significant we reject the null hypothesis that there is no significant autocorrelations among the variable, and accept that, the residual has spatial clustering
+
+```
+
+Here the test showing we have significant positive spatial autocorrelation in the regression residual. Let us plot it:
+
+```{r}
+#Now plot the residual on the polygon
+data$res_lm <- residuals(linearMod25)
+lmres <- qtm(data, "res_lm")
+lmres 
+
+```
+There is certainly some spatial clustering of the residuals, as our Moran’s I test suggested!!! To account for this we can try the next step of “Semi-local” spatial regression models such as spatial lag and error models.
+
+4.4 Test Spatial Lag model: Let us try testing a SML model and see if this solves the issues of spatial auto-correlation
+
+```{r}
+#running spatial lag model with same weight matrix created previously
+spa_lagmodel = lagsarlm (eq_pm25, data = data, listw= data_nbq_w, zero.policy = TRUE)
+
+summary(spa_lagmodel, Nagelkerke=T)
+
+#check residual autocorrelation
+mc2_global <-moran.mc(spa_lagmodel$residuals, data_nbq_w, 2999,zero.policy = TRUE, alternative="greater")
+
+plot(mc2_global)
+
+
+mc2_global
+
+#add the residual to polygon and plot
+data$res_slm <- residuals(spa_lagmodel)
+
+#plot using t-map
+slmres <-qtm(data, "res_slm")
+
+#compare with OLS residual
+tmap_arrange(lmres, slmres, asp = 1, ncol = 2)
+
+```

@@ -1,0 +1,6 @@
+Data sources:
+https://www.rivm.nl/gcn-gdn-kaarten/concentratiekaarten/cijfers-achter-concentratiekaarten/gcn-concentratiekaartbestanden-achterliggende-jaren
+https://www.cbs.nl/nl-nl/dossier/nederland-regionaal/geografische-data/gegevens-per-postcode
+https://www.pdok.nl/introductie/-/article/bestuurlijke-gebieden
+
+Data folder has the output data from the preprocessing steps.
